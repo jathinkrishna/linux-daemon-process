@@ -14,10 +14,9 @@
 #include <time.h>
 #include <stdarg.h>
 
-#define PID_FILE  "/tmp/student_daemon.pid"
+#define PID_FILE "/tmp/student_daemon.pid"
 #define LOCK_FILE "/tmp/student_daemon.lock"
-#define LOG_FILE  "/tmp/student_daemon.log"
-
+#define LOG_FILE "/tmp/student_daemon.log"
 #define INTERVAL 5
 
 static volatile sig_atomic_t running = 1;
@@ -26,21 +25,18 @@ static volatile sig_atomic_t reload_requested = 0;
 static int lock_fd = -1;
 static FILE *log_fp = NULL;
 
-/* Handle SIGTERM: request graceful shutdown */
 static void handle_sigterm(int sig)
 {
     (void)sig;
     running = 0;
 }
 
-/* Handle SIGHUP: request reload */
 static void handle_sighup(int sig)
 {
     (void)sig;
     reload_requested = 1;
 }
 
-/* Generate timestamp */
 static void get_timestamp(char *buffer, size_t size)
 {
     time_t now = time(NULL);
@@ -51,11 +47,9 @@ static void get_timestamp(char *buffer, size_t size)
         return;
     }
 
-    strftime(buffer, size, "%Y-%m-%d %H:%M:%S",
-             &tm_now);
+    strftime(buffer, size, "%Y-%m-%d %H:%M:%S", &tm_now);
 }
 
-/* Write messages to the log file */
 static void log_message(const char *format, ...)
 {
     char timestamp[64];
@@ -77,13 +71,9 @@ static void log_message(const char *format, ...)
     fflush(log_fp);
 }
 
-/* Convert the foreground process into a daemon */
 static void daemonize(void)
 {
-    pid_t pid;
-
-    /* First fork */
-    pid = fork();
+    pid_t pid = fork();
 
     if (pid < 0)
         exit(EXIT_FAILURE);
@@ -91,11 +81,9 @@ static void daemonize(void)
     if (pid > 0)
         exit(EXIT_SUCCESS);
 
-    /* Create a new session */
     if (setsid() < 0)
         exit(EXIT_FAILURE);
 
-    /* Second fork */
     pid = fork();
 
     if (pid < 0)
@@ -104,14 +92,11 @@ static void daemonize(void)
     if (pid > 0)
         exit(EXIT_SUCCESS);
 
-    /* Set file creation mask */
     umask(0);
 
-    /* Change working directory */
     if (chdir("/") < 0)
         exit(EXIT_FAILURE);
 
-    /* Redirect stdin, stdout and stderr */
     int fd = open("/dev/null", O_RDWR);
 
     if (fd < 0)
@@ -127,7 +112,6 @@ static void daemonize(void)
         close(fd);
 }
 
-/* Acquire exclusive lock to prevent duplicate instances */
 static int acquire_lock(void)
 {
     lock_fd = open(LOCK_FILE, O_RDWR | O_CREAT, 0644);
@@ -136,24 +120,23 @@ static int acquire_lock(void)
         return -1;
 
     if (flock(lock_fd, LOCK_EX | LOCK_NB) < 0) {
+        int saved_errno = errno;
         close(lock_fd);
         lock_fd = -1;
 
-        if (errno == EWOULDBLOCK)
+        if (saved_errno == EWOULDBLOCK)
             return 1;
 
+        errno = saved_errno;
         return -1;
     }
 
     return 0;
 }
 
-/* Create PID file */
 static int create_pid_file(void)
 {
-    int fd = open(PID_FILE,
-                  O_WRONLY | O_CREAT | O_TRUNC,
-                  0644);
+    int fd = open(PID_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
     if (fd < 0)
         return -1;
@@ -172,7 +155,6 @@ static int create_pid_file(void)
     return 0;
 }
 
-/* Install signal handlers */
 static int install_signal_handlers(void)
 {
     struct sigaction sa;
@@ -194,7 +176,6 @@ static int install_signal_handlers(void)
     return 0;
 }
 
-/* Release resources during shutdown */
 static void cleanup(void)
 {
     log_message("Daemon shutting down");
@@ -216,22 +197,18 @@ int main(void)
 {
     int result;
 
-    /* Step 1: Daemonize */
     daemonize();
 
-    /* Step 2: Prevent duplicate instances */
     result = acquire_lock();
 
     if (result != 0)
         return EXIT_FAILURE;
 
-    /* Step 3: Create PID file */
     if (create_pid_file() < 0) {
         close(lock_fd);
         return EXIT_FAILURE;
     }
 
-    /* Step 4: Open log file */
     log_fp = fopen(LOG_FILE, "a");
 
     if (log_fp == NULL) {
@@ -240,7 +217,6 @@ int main(void)
         return EXIT_FAILURE;
     }
 
-    /* Step 5: Install signal handlers */
     if (install_signal_handlers() < 0) {
         cleanup();
         return EXIT_FAILURE;
@@ -248,26 +224,18 @@ int main(void)
 
     log_message("Daemon started");
 
-    /* Step 6: Main daemon loop */
     while (running) {
-
-        /* Process SIGHUP request */
         if (reload_requested) {
             reload_requested = 0;
-
-            log_message(
-                "SIGHUP received - configuration reload requested"
-            );
+            log_message("SIGHUP received - configuration reload requested");
         }
 
         if (!running)
             break;
 
-        /* Perform normal daemon activity */
         log_message("Daemon alive");
 
-        /* Sleep for approximately five seconds */
-        struct timespec req = { INTERVAL, 0 };
+        struct timespec req = {INTERVAL, 0};
         struct timespec rem;
 
         while (nanosleep(&req, &rem) < 0) {
@@ -281,10 +249,8 @@ int main(void)
         }
     }
 
-    /* Step 7: Graceful shutdown */
     log_message("SIGTERM received");
     cleanup();
 
     return EXIT_SUCCESS;
 }
-
